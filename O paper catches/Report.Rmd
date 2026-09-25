@@ -1,0 +1,156 @@
+---
+title: "Catches Reported for the `r as.numeric(format(Sys.Date(), '%Y')) - params$y` Season"
+author: "IWC Secretariat - Statistics and Modelling"
+date: "`r Sys.Date()`"
+params:
+  y: 1   # 1 = last year, 2 = two years ago, etc.
+  catchesfile: "../inputs/catches-postMoratorium-test.xlsx"
+  countrymembership: "../inputs/NationsMembership.xlsx"
+  catchesbysexfile: "../inputs/catches-bysex-test.xlsx"
+output: 
+  word_document:
+    reference_docx: ../inputs/word_styles.docx
+knit: (function(inputFile, encoding) { rmarkdown::render(inputFile,encoding = encoding,output_file = "O paper x.docx",output_dir = "../outputs")})
+---
+
+```{r setup, include=FALSE, echo = F}
+knitr::opts_chunk$set(echo = FALSE)
+library(flextable)
+library(dplyr)
+library(tidyverse)
+library(readxl)
+library(officer)
+library(plyr)
+library(dplyr)
+library(magrittr)
+Sys.setlocale("LC_TIME", "C")
+
+FitFlextableToPage <- function(ft, pgwidth = 6){
+  ft_out <- ft %>% autofit()
+  ft_out <- width(ft_out, width = dim(ft_out)$widths*pgwidth /(flextable_dim(ft_out)$widths))
+  return(ft_out)
+}
+
+#read in the membership dates
+members <- read_excel(params$countrymembership)
+members$DateIn <- as.Date(members$EIFdate, "%B %d, %Y")
+members$DateOut <- as.Date(members$withdrawal, "%B %d, %Y")
+members$DateOut[is.na(members$DateOut)] <- Sys.Date()
+
+whichismember <- function(x = catches, members = members){
+  #when no info for date columns fill in the values
+  x$`Sday`[c(which(is.na(x$`Sday`)), which(x$`Sday` == ""))] <- "1"
+  x$`Smonth`[c(which(is.na(x$`Smonth`)), which(x$`Smonth` == ""))] <- "Jan"
+  x$`Syear`[c(which(is.na(x$`Syear`)), which(x$`Syear` == ""))] <- as.numeric(format(Sys.Date(), '%Y')) - 1
+  x$`Eday`[c(which(is.na(x$`Eday`)), which(x$`Eday` == ""))] <- "27"
+  x$`Emonth`[c(which(is.na(x$`Emonth`)), which(x$`Emonth` == ""))] <- "Dec"
+  x$`Eyear`[c(which(is.na(x$`Eyear`)), which(x$`Eyear` == ""))] <- as.numeric(format(Sys.Date(), '%Y')) - 1
+  
+  x$startd <- as.Date(paste(x$`Sday`,x$`Smonth`,x$`Syear`, sep="-"), "%d-%b-%Y")
+  x$endd <- as.Date(paste(x$`Eday`,x$`Emonth`,x$`Eyear`, sep="-"), "%d-%b-%Y")
+  
+  x$Member <- NA
+  
+  for (i in 1:nrow(x)){
+    #find the right country in the members table
+    indm <- which(members$Participant == x$Admin_Reg[i])
+    if(length(indm) != 0){
+    memberSD <- max(members$DateIn[indm])
+    memberED <- max(members$DateOut[indm])
+    if (x$startd[i] <= memberED & x$startd[i] >= memberSD){
+      x$Member[i] <- 'IWC Members'
+    } else if (x$endd[i] <= memberED & x$endd[i] >= memberSD){
+      x$Member[i] <- 'IWC Members'
+    } else {
+      x$Member[i] <- 'Non Members'
+    }
+    } else {
+      x$Member[i] <- 'Non Members'
+      }
+  }
+  return(x)
+}
+
+#read in the raw data and filter for the year
+catches <- read_excel(params$catchesfile, sheet = 1) %>% filter(Yearfile == as.numeric(format(Sys.Date(), '%Y')) - params$y)
+
+#member and non member nations
+catchesM <- whichismember(x = catches, members = members)
+
+#manipulate the data to make a master table
+groupColumns = c("Yearfile","Admin_Reg","Area","Ty","Member","UUID", "Notes")
+dataColumns = c("TBlue","PBlue","Fin","Spm","Hbk","Sei","Bryd","CMi","AMi","Gray","Bhd","Ri","Unsp")
+res = ddply(catchesM, groupColumns, function(x) colSums(x[dataColumns]))
+head(res)
+#add the notes
+res$Notes <- ""
+for (i in 1:nrow(res)){
+  indx <- which(catches$Year == res$Yearfile[i] & catches$Area == res$Area[i] & catches$Admin_Reg == res$Admin_Reg[i] & catches$Ty == res$Ty[i])
+  res$Notes[i] <- paste(catches$Notes[indx], collapse = ";")
+}
+
+#
+numberspersex <- read_excel(params$catchesbysexfile, sheet = 1) %>%
+  select(UUID, species, Male, Female, Unidentified, `Struck and Lost`, Stinky, `total landed`, `total strikes`)
+res <- merge(res, numberspersex, by.x = "UUID", by.y = "UUID", all.x = T, all.y = F)
+#if(!("Ty" %in% colnames(res))) res <- res %>% dplyr::rename(Ty = Ty.x)
+Tydf = data.frame(Ty = c("C","AS","Inf","SP","WO","WR","M"), Type = c("Commercial","Aboriginal subsistence","Illegal","Special permit", "Commercial under objection", "Commercial under reservation", "Non-member non-commercial"))
+res <- merge(res,Tydf, by = "Ty", all.x = T, all.y = F)
+
+res <- res[,c("Member","Admin_Reg","Area","Type","species","Female","Male","Unidentified","Struck and Lost","total landed","total strikes","Stinky","Notes")]
+detach(package:plyr)
+res <- res %>%
+  group_by(Member, Admin_Reg, Area, Type, species) %>%
+  mutate(across(
+    c(Female, Male, Unidentified, `Struck and Lost`, `total landed`, `total strikes`, Stinky),
+    ~ as.numeric(.)
+  )) %>%
+  summarise(Female = sum(Female,na.rm= T), Male = sum(Male,na.rm= T), Unidentified = sum(Unidentified,na.rm= T), `Struck and Lost` = sum(`Struck and Lost`,na.rm= T), `total landed` = sum(`total landed`,na.rm= T), `total strikes` = sum(`total strikes`,na.rm= T), Stinky = sum(Stinky,na.rm= T))
+#### make data per year and Type ####
+resY <- split(res, res$Type) #split by type
+
+types = unique(res$Type)
+
+```
+
+```{r catchmain, echo = F, results='asis', warning=FALSE, message=FALSE}
+
+#for ASW
+df <- res[res$Type == "Aboriginal subsistence",]
+#names(df)
+dfo <- df[order(df$Member, df$Admin_Reg, df$Area, df$species),]
+dfo$Type <- NULL
+
+flextable_to_rmd(as_grouped_data(dfo, groups = c("Member")) %>% 
+                   as_flextable(hide_grouplabel = TRUE) %>%
+    theme_booktabs() %>%
+    autofit(part = "all") %>%
+    align(align = "center", part = "all") %>% 
+    merge_v(j = c("Admin_Reg", "Area", "species")) %>%
+    set_caption(caption = paste0("Summary of Aboriginal Subsistence Whaling catches and infractions reported for the ",as.numeric(format(Sys.Date(), '%Y')) - params$y," season.")) %>% 
+  border_inner_h(border = fp_border(color="gray", width=1)) %>%
+  FitFlextableToPage(pgwidth = 8) %>%
+    fontsize(size = 9, part = "all") %>%
+    font(fontname = "Times", part = "all"))
+
+ cat("\n  <br>  \n")
+  
+df <- res[res$Type != "Aboriginal subsistence",]
+names(df)
+dfo <- df[order(df$Member, df$Admin_Reg, df$Type, df$Area, df$species),]
+
+flextable_to_rmd(as_grouped_data(dfo, groups = c("Member")) %>% 
+                   as_flextable(hide_grouplabel = TRUE) %>%
+    theme_booktabs() %>%
+    autofit(part = "all") %>%
+    align(align = "center", part = "all") %>% 
+    merge_v(j = c("Type","Admin_Reg","Area", "species")) %>%
+    set_caption(caption = paste0("Summary of catches and infractions reported for the  ",as.numeric(format(Sys.Date(), '%Y')) - params$y," season.")) %>% 
+  border_inner_h(border = fp_border(color="gray", width=1)) %>%
+  FitFlextableToPage(pgwidth = 8) %>%
+    fontsize(size = 9, part = "all") %>%
+    font(fontname = "Times", part = "all"))
+
+ cat("\n  <br>  \n")
+
+```

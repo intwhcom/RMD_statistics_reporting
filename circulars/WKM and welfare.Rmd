@@ -1,0 +1,61 @@
+---
+output:
+  word_document:
+    reference_docx: "WKM and welfare template.docx"
+    keep_md: true
+---
+
+<br>
+
+RJL/JAC/[INSERT NUMBER]
+<div>`r format(Sys.Date(), "%d %B %Y")`</div>
+
+<br>
+
+<center>
+
+Circular Communication to Commissioners and Contracting Governments
+
+<br>
+
+IWC.CCG.[INSERT NUMBER]  
+c.c. Accredited observers to the IWC
+
+<br>
+
+**Call for Information on Whale Killing Methods and Welfare Issues**
+
+</center>
+
+<br>
+
+This Circular invites Contracting Governments to submit information on whale killing and welfare statistics for the **`r lubridate::year(Sys.Date()) - 1`** season to the Secretariat by **`r format(Sys.Date()+30, "%d %B %Y")`**.
+
+<br>
+
+All data received are compiled by the Secretariat and made available to the meetings of the Working Group on Whale Killing Methods and Welfare Issues (WKM-WI Working Group).
+
+<br>
+
+The Secretariat has developed a Summary Reporting Form, which Contracting Governments may wish to use to guide their responses (Annex 1) available [here](https://archive.iwc.int/?r=22530). Completion of this form is not compulsory nor is it intended to replace the submission of detailed reports where appropriate. The form is based upon relevant Commission Resolutions (1997-1, 1999-1, 2001-2, and 2004-3) and the revised action plan on whale killing methods developed at an IWC workshop in 2003.
+
+<br>
+
+Contracting Governments may also wish to use the form to provide information on times to death and methods used to euthanize stranded or trapped whales.
+
+<br>
+
+Should you have any questions, please contact the Statistics and Modelling Department of the Secretariat at [statistics@iwc.int](mailto:statistics@iwc.int).
+
+<br>
+
+<center>
+![](../inputs/image1.png)
+
+**NAME**  
+Lead for Statistics & Modelling  
+</center>
+
+```{r, results='asis', echo=F}
+cat("\n\n<style> body { font-family: 'Times New Roman'; } h1, h2, h3, h4 { text-align: center; } p { text-align: justify; } </style>\n")
+```

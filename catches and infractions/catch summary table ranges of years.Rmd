@@ -1,0 +1,161 @@
+---
+title: "SUMMARY OF REPORTED CATCHES"
+subtitle: "Range of catches over a time period"
+params:
+  y: 3 # 1 = last year, 2 = two years ago, etc.
+  catchesfile: "../inputs/catches-postMoratorium-test.xlsx"
+  countrymembership: "../inputs/NationsMembership.xlsx"
+output: 
+  word_document:
+    reference_docx: ../inputs/word_styles.docx
+knit: (function(inputFile, encoding) { rmarkdown::render(inputFile,encoding = encoding,output_file = "catches range over years x-x.docx",output_dir = "../outputs")})
+---
+
+```{r setup, echo = FALSE, include= FALSE}
+
+knitr::opts_chunk$set(echo = FALSE)
+library(flextable)
+library(dplyr)
+library(tidyverse)
+library(readxl)
+library(officer)
+library(plyr)
+library(dplyr)
+library(magrittr)
+
+FitFlextableToPage <- function(ft, pgwidth = 6){
+  ft_out <- ft %>% autofit()
+  ft_out <- width(ft_out, width = dim(ft_out)$widths*pgwidth /(flextable_dim(ft_out)$widths))
+  return(ft_out)
+}
+
+#read in the membership dates
+members <- read_excel(params$countrymembership)
+members$DateIn <- as.Date(members$EIFdate, "%B %d, %Y")
+members$DateOut <- as.Date(members$withdrawal, "%B %d, %Y")
+members$DateOut[is.na(members$DateOut)] <- Sys.Date()
+
+whichismember <- function(x = catches, members = members){
+  #when no info for date columns fill in the values
+  x$`Sday`[c(which(is.na(x$`Sday`)), which(x$`Sday` == ""))] <- "1"
+  x$`Smonth`[c(which(is.na(x$`Smonth`)), which(x$`Smonth` == ""))] <- "Jan"
+  x$`Syear`[c(which(is.na(x$`Syear`)), which(x$`Syear` == ""))] <- as.numeric(format(Sys.Date(), '%Y')) - 1
+  x$`Eday`[c(which(is.na(x$`Eday`)), which(x$`Eday` == ""))] <- "27"
+  x$`Emonth`[c(which(is.na(x$`Emonth`)), which(x$`Emonth` == ""))] <- "Dec"
+  x$`Eyear`[c(which(is.na(x$`Eyear`)), which(x$`Eyear` == ""))] <- as.numeric(format(Sys.Date(), '%Y')) - 1
+  
+  x$startd <- as.Date(
+  sprintf(
+    "%04d-%02d-%02d",
+    as.integer(x$Syear),
+    match(x$Smonth, month.abb),
+    as.integer(x$Sday)
+  )
+)
+
+x$endd <- as.Date(
+  sprintf(
+    "%04d-%02d-%02d",
+    as.integer(x$Eyear),
+    match(x$Emonth, month.abb),
+    as.integer(x$Eday)
+  )
+)
+  
+  x$Member <- NA
+  
+  for (i in 1:nrow(x)){
+    #find the right country in the members table
+    indm <- which(members$Participant == x$Admin_Reg[i])
+    if(length(indm) != 0){
+    memberSD <- max(members$DateIn[indm])
+    memberED <- max(members$DateOut[indm])
+    if (x$startd[i] <= memberED & x$startd[i] >= memberSD){
+      x$Member[i] <- 'IWC Members'
+    } else if (x$endd[i] <= memberED & x$endd[i] >= memberSD){
+      x$Member[i] <- 'IWC Members'
+    } else {
+      x$Member[i] <- 'Non Members'
+    }
+    } else {
+      x$Member[i] <- 'Non Members'
+      }
+  }
+  return(x)
+}
+
+#read in the raw data
+catches <- read_excel(params$catchesfile, sheet = 1) %>% filter(Yearfile >= as.numeric(format(Sys.Date(), '%Y')) - params$y) %>% mutate(Year = Yearfile)
+
+
+#member and non member Admin_Regs
+catchesM <- whichismember(x = catches, members = members)
+#manipulate the data to make a master table
+
+
+groupColumns = c("Year","Admin_Reg","Area","Ty","Member")
+dataColumns = c("TBlue","PBlue","Fin","Spm","Hbk","Sei","Bryd","CMi","AMi","Gray","Bhd","Ri","Unsp")
+res = ddply(catchesM, groupColumns, function(x) colSums(x[dataColumns]))
+head(res)
+#add the notes
+res$Notes <- ""
+for (i in 1:nrow(res)){
+  indx <- which(catches$Year == res$Year[i] & catches$Area == res$Area[i] & catches$Admin_Reg == res$Admin_Reg[i] & catches$Ty == res$Ty[i])
+  res$Notes[i] <- paste(catches$Notes[indx], collapse = ";")
+}
+colnames(res) <- c(groupColumns, "true blue whales", "pygmy blue whales", "fin whales", "sperm whales", "humpback whales", "sei whales", "Bryde’s whales", "common minke whales", "antarctic minke whales", "gray whales", "bowhead whales", "right whales", "unspecified", "Notes")
+#reshape the table
+library(reshape2)
+molted=melt(res,id.vars=c(groupColumns, "Notes"))
+molted
+summary(molted)
+#change the names of the columns
+colnames(molted)[which(names(molted) == "variable")] <- "Species"
+colnames(molted)[which(names(molted) == "value")] <- "Number"
+
+x1 <- aggregate(Number~Admin_Reg+Area+Ty+Member+Species, FUN=min, data = molted)
+x2 <- aggregate(Number~Admin_Reg+Area+Ty+Member+Species, FUN=max, data = molted)
+x3 <- merge(x1,x2,by = c("Admin_Reg","Area","Ty","Member","Species"))
+x3$sum <- x3$Number.x + x3$Number.y
+x4 <- x3[x3$sum>0,]
+x4$sum <- NULL
+x4$Range <- paste(x4$Number.x,x4$Number.y,sep = " - ")
+x4$Number.x <- NULL
+x4$Number.y <- NULL
+
+df <- x4
+dfo <- df[order(df$Member,df$Ty, df$Admin_Reg, df$Area,df$Species),]
+dfo <- dfo %>%
+  relocate(Ty) %>% 
+  # rename(" "=Ty) %>%
+  relocate(Member)
+
+# years the data were reported
+year_min <- min(catches$Year, na.rm = TRUE)
+year_max <- max(catches$Year, na.rm = TRUE)
+
+caption_text <- paste0(
+  "Reported catches, ", year_min, "–", year_max, ". ",
+  "For each administrative region and catch area, values show the range ",
+  "(minimum–maximum) of annual reported catches over the period, by species and catch type. ",
+  "Catch types are AS: Aboriginal subsistence catches; C:  Commercial whaling by non-member nations, reported to the IWC; Inf: Illegal catches by IWC member nations, reported to the infractions sub-committee; M:  Non-commercial catches by non-member nations, reported to the IWC; SP: Special permit whaling; SPicj: Special permit whaling-catches discussed by ICJ; U:   Unconfirmed reports of catches by non-member nations; WO: whaling under objection; WR: whaling under reservation"
+)
+```
+
+```{r catchmain, echo = FALSE, results='asis', warning=FALSE, message=FALSE}
+flextable_to_rmd(as_grouped_data(dfo, groups = "Member") %>% 
+                   as_flextable(hide_grouplabel = TRUE) %>% 
+                   theme_booktabs() %>%
+                   autofit(part = "all") %>%
+                   align(align = "center", part = "all") %>% 
+                   bold( bold = TRUE, part="header") %>% 
+                   align(i = ~ !is.na(Member), align = "left") %>% 
+                   bold(i = ~ !is.na(Member)) %>%
+                   set_caption(caption = caption_text) %>% 
+                   fontsize(size = 9, part = "all") %>%
+                   font(fontname = "Times", part = "all") %>%
+                   merge_v(j = c("Ty", "Admin_Reg")) %>%
+                   border_inner_h(border = fp_border(color="gray", width=1))  %>% 
+                   width(width = 0.7)
+)
+```

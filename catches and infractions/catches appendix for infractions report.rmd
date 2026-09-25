@@ -1,0 +1,228 @@
+---
+title: "APPENDIX A: SUMMARY OF REPORTED CATCHES"
+author: "IWC Secretariat - Statistics and Modelling Department"
+params: 
+  first_year: 2024
+  last_year: 2025
+  membershipfile: "../inputs/NationsMembership.xlsx"
+  catchesfile: "../inputs/catches-postMoratorium-test.xlsx"
+output: 
+  word_document:
+    reference_docx: word_styles.docx
+knit: (function(inputFile, encoding) { rmarkdown::render(inputFile,encoding = encoding,output_file = "catch addendix for infractions report years x-x.docx",output_dir = "../outputs")})
+---
+
+Catches are summarised per year in tables A.1 to A.`r (params$last_year - params$first_year)+1` and include aboriginal subsistence and commercial catches, submitted to the IWC Secretariat.Note that although lost whales are traditionally reported, they are not intrinsically infractions.
+
+We are grateful to non-member nations for supplying catch data.
+
+```{r setup, include=FALSE, echo = F}
+knitr::opts_chunk$set(echo = FALSE)
+library(flextable)
+library(plyr)
+library(dplyr)
+library(tidyverse)
+library(readxl)
+library(officer)
+library(magrittr)
+
+Sys.setlocale("LC_TIME", "English") # to identify months like Sep = 9
+
+FitFlextableToPage <- function(ft, pgwidth = 6){
+  ft_out <- ft %>% autofit()
+  ft_out <- width(ft_out, width = dim(ft_out)$widths*pgwidth /(flextable_dim(ft_out)$widths))
+  return(ft_out)
+}
+
+#read in the membership dates
+members <- read_excel(params$membershipfile)
+members$DateIn <- as.Date(members$EIFdate, "%B %d, %Y")
+members$DateOut <- as.Date(members$withdrawal, "%B %d, %Y")
+members$DateOut[is.na(members$DateOut)] <- Sys.Date()
+
+whichismember <- function(x = catches, members = members){
+  #when no info for date columns fill in the values
+  x$Sday[c(which(is.na(x$Sday)), which(x$Sday == ""))] <- "01"
+  x$Smonth[c(which(is.na(x$Smonth)), which(x$Smonth == ""))] <- "Jan"
+  x$Eday[c(which(is.na(x$Eday)), which(x$Eday == ""))] <- "31"
+  x$Emonth[c(which(is.na(x$Emonth)), which(x$Emonth == ""))] <- "Dec"
+  
+  x$startd <- as.Date(paste(x$Sday,x$Smonth,x$Syear, sep="-"), "%d-%b-%Y")
+  x$endd <- as.Date(paste(x$Eday,x$Emonth,x$Eyear, sep="-"), "%d-%b-%Y")
+  
+  x$Member <- NA
+  
+  for (i in 1:nrow(x)){
+    #find the right country in the members table
+    indm <- which(members$Participant == x$Admin_Reg[i])
+    if(length(indm) != 0){
+    memberSD <- max(members$DateIn[indm])
+    memberED <- max(members$DateOut[indm])
+    if (x$startd[i] <= memberED & x$startd[i] >= memberSD){
+      x$Member[i] <- 'Member Nations'
+    } else if (x$endd[i] <= memberED & x$endd[i] >= memberSD){
+      x$Member[i] <- 'Member Nations'
+    } else {
+      x$Member[i] <- 'Non Member Nations'
+    }
+    } else {
+      x$Member[i] <- 'Non Member Nations'
+      }
+  }
+  return(x)
+}
+
+#read in the raw data
+catches <- read_excel(params$catchesfile, sheet=1) %>% filter( Yearfile %in% params$first_year:params$last_year)
+
+#member and non member nations
+catchesM <- whichismember(x = catches, members = members)
+
+#manipulate the data to make a master table
+groupColumns = c("Yearfile","Admin_Reg","Area","Ty","Member")
+# total strikes columns
+dataColumns = c("TBlue","PBlue","Fin","Spm","Hbk","Sei","Bryd","CMi","AMi","Gray","Bhd","Ri","Unsp")
+# columns containing struck and lost animals
+lostColumns <- c(
+  "FinLost","HbkLost","SeiLost",
+  "CMiLost","GrayLost","BhdLost"
+)
+# names to use in the table
+species_names <- c(
+  TBlue = "true blue whales",
+  PBlue = "pygmy blue whales",
+  Fin   = "fin whales",
+  Spm   = "sperm whales",
+  Hbk   = "humpback whales",
+  Sei   = "sei whales",
+  Bryd  = "Bryde’s whales",
+  CMi   = "common minke whales",
+  AMi   = "antarctic minke whales",
+  Gray  = "gray whales",
+  Bhd   = "bowhead whales",
+  Ri    = "right whales",
+  Unsp  = "unspecified"
+)
+
+# sum total strikes and struck-and-lost by year, country, area, catch type and membership
+res <- ddply(
+  catchesM,
+  groupColumns,
+  function(x) {
+    c(
+      colSums(x[dataColumns], na.rm = TRUE),
+      colSums(x[lostColumns], na.rm = TRUE)
+    )
+  }
+)
+
+head(res)
+#add the notes
+res$Notes <- ""
+for (i in 1:nrow(res)){
+  indx <- which(catches$Yearfile == res$Yearfile[i] & catches$Area == res$Area[i] & catches$Admin_Reg == res$Admin_Reg[i] & catches$Ty == res$Ty[i])
+  res$Notes[i] <- paste(catches$Notes[indx], collapse = ";")
+}
+
+#reshape the table
+library(reshape2)
+
+total_long <- melt(
+  res,
+  id.vars = c(groupColumns, "Notes"),
+  measure.vars = dataColumns,
+  variable.name = "SpeciesCode",
+  value.name = "Total Strikes"
+)
+
+
+# reshape struck and lost
+lost_long <- melt(
+  res,
+  id.vars = c(groupColumns, "Notes"),
+  measure.vars = lostColumns,
+  variable.name = "SpeciesCode",
+  value.name = "Struck and Lost"
+)
+
+# remove "Lost" from species codes so they match the total-strike codes
+lost_long$SpeciesCode <- sub("Lost$", "", lost_long$SpeciesCode)
+
+
+# combine total strikes and struck-and-lost
+res0 <- merge(
+  total_long,
+  lost_long[
+    , c(groupColumns, "SpeciesCode", "Struck and Lost")
+  ],
+  by = c(groupColumns, "SpeciesCode"),
+  all.x = TRUE
+)
+
+
+# retain only species for which at least one whale was struck
+res0 <- res0[res0$`Total Strikes` != 0, ]
+
+
+# use full species names
+res0$Species <- species_names[as.character(res0$SpeciesCode)]
+
+
+# remove SpeciesCode
+res0$SpeciesCode <- NULL
+
+
+# put columns in the desired order
+res1 <- res0 %>%
+  relocate(
+    Species,
+    `Total Strikes`,
+    `Struck and Lost`,
+    Notes,
+    .after = Area
+  )
+
+
+#### make data per year ####
+
+resY0 <- split(res1, res1$Yearfile)
+
+years <- params$first_year:params$last_year
+
+```
+
+```{r catchmain, echo = F, results='asis', warning=FALSE, message=FALSE}
+
+for (y in 1:length(years)){
+df <- resY0[[paste(years[y])]]
+names(df)
+dfo <- df[order(df$Member,df$Ty, df$Admin_Reg, df$Area, df$Species),]
+dfo$Yearfile<-NULL
+dfo <- dfo %>%
+  relocate(Ty) %>% 
+ # rename(" "=Ty) %>%
+  relocate(Member) %>%
+  rename(`Admin Region` = Admin_Reg)
+ 
+flextable_to_rmd(as_grouped_data(dfo, groups = "Member") %>% 
+  as_flextable(hide_grouplabel = TRUE) %>% 
+    theme_booktabs() %>%
+    autofit(part = "all") %>%
+    align(align = "center", part = "all") %>% 
+  bold( bold = TRUE, part="header") %>% 
+  align(i = ~ !is.na(Member), align = "left") %>% 
+  bold(i = ~ !is.na(Member)) %>%
+  set_caption(caption = paste0("Table A.",y,". Summary of total strikes, including infractions, reported for the ",years[y]," season. Catch types are AS: Aboriginal subsistence catches; C:  Commercial whaling by non-member nations, reported to the IWC; Inf: Illegal catches by IWC member nations, reported to the infractions sub-committee; M:  Non-commercial catches by non-member nations, reported to the IWC; SP: Special permit whaling; SPicj: Special permit whaling-catches discussed by ICJ; U:   Unconfirmed reports of catches by non-member nations; WO: whaling under objection; WR: whaling under reservation")) %>% 
+  FitFlextableToPage(pgwidth = 6) %>%
+    fontsize(size = 9, part = "all") %>%
+    font(fontname = "Times", part = "all") %>%
+    merge_v(j = c("Ty", "Admin Region", "Area", "Notes")) %>%
+    border_inner_h(border = fp_border(color="gray", width=1))  %>% 
+    width(width = 0.7) %>%
+    width(j = "Notes", width = 2.5, unit = "in")
+)
+
+ cat("\n  <br>  \n")
+  
+}
+```

@@ -1,0 +1,289 @@
+---
+title: "SUMMARY OF INFRACTIONS AND CATCH REPORTS RECEIVED BY THE COMMISSION"
+subtitle: "Paper of information reported to the Secretariat"
+author: "IWC Secretariat - Statistics and Modelling Department"
+params: 
+  first_year: 2024
+  last_year: 2025
+  membershipfile: "../inputs/NationsMembership.xlsx"
+  infmasterfile: "../inputs/Infractions_master_table_SYNTHETIC.xlsx"
+  catchesfile: "../inputs/catches-postMoratorium-test.xlsx"
+output: 
+  word_document:
+    reference_docx: word_styles.docx
+knit: (function(inputFile, encoding) { rmarkdown::render(inputFile,encoding = encoding,output_file = "infractions and catches paper years x-x.docx",output_dir = "../outputs")})
+---
+
+```{r setup, include=FALSE, echo = F}
+knitr::opts_chunk$set(echo = FALSE)
+library(flextable)
+library(plyr)
+library(dplyr)
+library(tidyverse)
+library(readxl)
+library(officer)
+library(magrittr)
+
+Sys.setlocale("LC_TIME", "English") # to identify months like Sep = 9
+
+FitFlextableToPage <- function(ft, pgwidth = 6){
+  ft_out <- ft %>% autofit()
+  ft_out <- width(ft_out, width = dim(ft_out)$widths*pgwidth /(flextable_dim(ft_out)$widths))
+  return(ft_out)
+}
+
+#read in the membership dates
+members <- read_excel(params$membershipfile)
+members$DateIn <- as.Date(members$EIFdate, "%B %d, %Y")
+members$DateOut <- as.Date(members$withdrawal, "%B %d, %Y")
+members$DateOut[is.na(members$DateOut)] <- Sys.Date()
+
+whichismember <- function(x = catches, members = members){
+  #when no info for date columns fill in the values
+  x$Sday[c(which(is.na(x$Sday)), which(x$Sday == ""))] <- "01"
+  x$Smonth[c(which(is.na(x$Smonth)), which(x$Smonth == ""))] <- "Jan"
+  x$Eday[c(which(is.na(x$Eday)), which(x$Eday == ""))] <- "31"
+  x$Emonth[c(which(is.na(x$Emonth)), which(x$Emonth == ""))] <- "Dec"
+  
+  x$startd <- as.Date(paste(x$Sday,x$Smonth,x$Syear, sep="-"), "%d-%b-%Y")
+  x$endd <- as.Date(paste(x$Eday,x$Emonth,x$Eyear, sep="-"), "%d-%b-%Y")
+  
+  x$Member <- NA
+  
+  for (i in 1:nrow(x)){
+    #find the right country in the members table
+    indm <- which(members$Participant == x$Admin_Reg[i])
+    if(length(indm) != 0){
+    memberSD <- max(members$DateIn[indm])
+    memberED <- max(members$DateOut[indm])
+    if (x$startd[i] <= memberED & x$startd[i] >= memberSD){
+      x$Member[i] <- 'Members'
+    } else if (x$endd[i] <= memberED & x$endd[i] >= memberSD){
+      x$Member[i] <- 'Members'
+    } else {
+      x$Member[i] <- 'Non Members'
+    }
+    } else {
+      x$Member[i] <- 'Non Members'
+      }
+  }
+  return(x)
+}
+
+#read in the raw data
+catches <- read_excel(params$catchesfile, sheet = 1) %>% filter(Yearfile %in% params$first_year:params$last_year) %>% mutate(Year = Yearfile)
+
+
+#member and non member nations
+catchesM <- whichismember(x = catches, members = members)
+
+#manipulate the data to make a master table
+groupColumns = c("Year","Admin_Reg","Area","Ty","Member")
+dataColumns = c("TBlue","PBlue","Fin","Spm","Hbk","Sei","Bryd","CMi","AMi","Gray","Bhd","Ri","Unsp")
+res = ddply(catchesM, groupColumns, function(x) colSums(x[dataColumns]))
+head(res)
+#add the notes
+res$Notes <- ""
+for (i in 1:nrow(res)){
+  indx <- which(catches$Year == res$Year[i] & catches$Area == res$Area[i] & catches$Admin_Reg == res$Admin_Reg[i] & catches$Ty == res$Ty[i])
+  res$Notes[i] <- paste(catches$Notes[indx], collapse = ";")
+}
+
+#### make data per year and Type ####
+resY <- split(res, res$Year) #split by year
+#delete those columns that have 0 catches in the year
+d0c <- function(x) {
+  cols.to.keep <- dataColumns[colSums(x[dataColumns]) != 0] #columns to keep
+  ind <-c(which(!(names(x) %in% dataColumns)),which(names(x) %in% cols.to.keep))
+  y <- x[,ind[order(ind)]]
+return(y)}
+resY0 <- lapply(resY,d0c)
+
+years <- unique(catches$Year)
+
+table_no <- 0
+
+```
+
+## Catches including infractions
+
+```{r catchmain, echo = F, results='asis', warning=FALSE, message=FALSE}
+
+for (y in 1:length(years)){
+df <- resY0[[paste(years[y])]]
+names(df)
+dfo <- df[order(df$Member,df$Ty, df$Admin_Reg, df$Area),]
+dfo$Year<-NULL
+dfo <- dfo %>%
+  relocate(Ty) %>% 
+ # rename(" "=Ty) %>%
+  relocate(Member) %>%
+  rename(`Admin Region` = Admin_Reg)
+ 
+colnames(dfo)[which(colnames(dfo) == "Member")] = "M"
+
+ table_no <- table_no + 1
+
+flextable_to_rmd(flextable(dfo) %>%
+    theme_booktabs() %>%
+    autofit(part = "all") %>%
+    align(align = "center", part = "all") %>% 
+    merge_v(j = c("M","Ty", "Admin Region", "Area")) %>%
+            # show NA as blank
+      colformat_char(na_str = "") %>%
+      colformat_num(na_str = "") %>%
+      colformat_int(na_str = "") %>%
+    set_caption(caption = paste0("Table ",table_no,". Summary of catches and infractions reported for the ", years[y], " season. ",
+"Catch types: AS = Aboriginal subsistence catches; C = commercial whaling by non-member nations reported to the IWC; ",
+"Inf = illegal catches by IWC member nations reported to the Infractions Sub-Committee; ",
+"M = non-commercial catches by non-member nations reported to the IWC; ",
+"SP = special permit whaling; SPicj = special permit whaling catches considered by the International Court of Justice (ICJ); ",
+"U = unconfirmed reports of catches by non-member nations; WO = whaling under objection; WR = whaling under reservation. ",
+"Species columns (TBlue, PBlue, Fin, Spm, Hbk, Sei, Bryd, CMi, AMi, Gray, Bhd and Ri) give the numbers of ",
+"true blue, pygmy blue, fin, sperm, humpback, sei, Bryde’s, common minke, Antarctic minke, gray, bowhead and right whales, respectively, ",
+"struck, including whales struck and lost. Unsp = number of whales of unspecified species. ",
+"More detailed catch information is available in the Scientific Committee O papers, accessible through the IWC Archive: ",
+"https://archive.iwc.int/pages/collections_featured.php?parent=30157.")) %>% 
+  border_inner_h(border = fp_border(color="gray", width=1)) %>%
+  rotate(j = 1, align = "center", rotation = "btlr") %>% 
+    rotate(j = 5:(ncol(dfo)-1), align = "center", rotation = "btlr", part = "header") %>%
+  FitFlextableToPage(pgwidth = 11) %>%
+    fontsize(size = 9, part = "all") %>%
+    font(fontname = "Times", part = "all"))
+
+ cat("\n  <br>  \n")
+  
+}
+```
+
+## Infractions reported
+
+```{r infractionsmain, echo = F, results='asis', warning=FALSE, message=FALSE}
+#read in the raw data
+column_names <- names(
+  read_excel(params$infmasterfile, sheet = 1, n_max = 0)
+)
+
+col_types <- rep("guess", length(column_names))
+
+col_types[
+  column_names == "Percentage of catch under direct national inspection"
+] <- "text"
+
+infractions <- read_excel(
+  params$infmasterfile,
+  sheet = 1,
+  col_types = col_types
+)
+
+
+whichismember1 <- function(x = infractions, members = members){
+  #when no info for date columns fill in the values
+  x$date[is.na(x$date)] <- as.Date(paste(x$Year[is.na(x$date)],"01","01", sep="-"), "%Y-%m-%d")
+
+  x$Member <- NA
+  
+  for (i in 1:nrow(x)){
+    #find the right country in the members table
+    indm <- which(members$Participant == x$Nation[i])
+    if(length(indm) != 0){
+    memberSD <- max(members$DateIn[indm])
+    memberED <- max(members$DateOut[indm])
+    if (x$date[i] <= memberED & x$date[i] >= memberSD){
+      x$Member[i] <- 'Members'
+    } else {
+      x$Member[i] <- 'Non Members'
+    }
+    } else {
+      x$Member[i] <- 'Non Members'
+      }
+  }
+  return(x)
+}
+#member and non member nations
+infractionsM <- whichismember1(x = infractions, members = members)
+infractionsM$lengthU <- ifelse(
+  is.na(infractionsM$length),
+  "",
+  paste(
+    infractionsM$length,
+    ifelse(is.na(infractionsM$length_unit), "", infractionsM$length_unit)
+  )
+)
+
+#choose the years of interest
+infractions0 <- infractionsM %>% filter(Year %in% params$first_year:params$last_year) %>% mutate(Admin_Reg = Nation)
+
+#make a table that sums up individuals takes by infractions, including 0
+infractionsA <- aggregate(number  ~ Year+Member+Admin_Reg+species, infractions0, sum)
+infractionsA <- infractionsA[order(infractionsA$Year,infractionsA$Member,infractionsA$Admin_Reg),c('Year','Member','Admin_Reg', 'species', 'number')]
+infractionsA$species[which(infractionsA$species == "all")] <- "-"
+infractionsAL <- split(infractionsA, infractionsA$Year)
+
+infractions0 <- infractions0[infractions0$number>0,]
+infractionsB <- infractions0[order(infractions0$Year,infractions0$Member,infractions0$Admin_Reg, infractions0$species),c('Year','Member','Admin_Reg', 'species', 'number', 'sex','lengthU','infraction', 'details', 'penalty')]
+infractionsBL <- split(infractionsB, infractionsB$Year)
+```
+
+```{r infractionstables, echo = F, results='asis', warning=FALSE, message=FALSE}
+for (y in 1:length(years)){
+dfA <- infractionsAL[[paste(years[y])]] %>%
+  rename(`Admin Region` = Admin_Reg)
+if(length(dfA) > 0){
+dfA$Year <- NULL
+table_no <- table_no + 1
+flextable_to_rmd(as_grouped_data(dfA, groups = "Member") %>% 
+  as_flextable(hide_grouplabel = TRUE) %>% 
+          # show NA as blank
+      colformat_char(na_str = "") %>%
+      colformat_num(na_str = "") %>%
+      colformat_int(na_str = "") %>%
+  #add_footer_lines("Observed event") %>%
+  #set_header_labels(what = "") %>% 
+  #color(part = "footer", color = "#800000") %>%
+  bold( bold = TRUE, part="header") %>% 
+  align(i = ~ !is.na(Member), align = "left") %>% 
+  bold(i = ~ !is.na(Member)) %>%
+    set_caption(caption = paste0("Table ",table_no,". Summary of the number of individual whales taken as infractions, as reported for the ",years[y]," season.")) %>%
+  FitFlextableToPage(pgwidth = 4) %>%
+    fontsize(size = 9, part = "all") %>%
+    font(fontname = "Times", part = "all") %>%
+    theme_booktabs() %>%
+    autofit(part = "all") %>%
+    align(align = "center", part = "all") 
+)
+
+cat("\n  <br>  \n")
+}
+
+dfB <- infractionsBL[[paste(years[y])]]
+
+if(length(dfB) > 0){
+dfB$Year <- NULL
+dfB <- dfB %>%
+  rename(`Admin Region` = Admin_Reg)
+table_no <- table_no + 1
+flextable_to_rmd(as_grouped_data(dfB, groups = "Member") %>% 
+  as_flextable(hide_grouplabel = TRUE) %>% 
+        # show NA as blank
+      colformat_char(na_str = "") %>%
+      colformat_num(na_str = "") %>%
+      colformat_int(na_str = "") %>%
+  #add_footer_lines("Observed event") %>%
+  #set_header_labels(what = "") %>% 
+  #color(part = "footer", color = "#800000") %>%
+  bold( bold = TRUE, part="header") %>% 
+  align(i = ~ !is.na(Member), align = "left") %>% 
+  bold(i = ~ !is.na(Member)) %>%
+    set_caption(caption = paste0("Table ",table_no,". Details on reported infractions for the ",years[y]," season.")) %>%
+  FitFlextableToPage(pgwidth = 11) %>%
+    fontsize(size = 9, part = "all") %>%
+    font(fontname = "Times", part = "all") %>%
+    theme_booktabs() %>%
+    #autofit(part = "all") %>%
+    align(align = "center", part = "all") 
+)
+
+cat("\n  <br>  \n")}
+}
+```

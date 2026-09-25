@@ -1,0 +1,65 @@
+---
+output:
+  word_document:
+    reference_docx: "catches and infractions template.docx"
+    keep_md: true
+---
+
+<br>
+
+IK/JAC/[INSERT NUMBER]
+<div>`r format(Sys.Date(), "%d %B %Y")`</div>
+
+<br>
+
+<center>
+
+Circular Communication to Commissioners and Contracting Governments
+
+<br>
+
+IWC.CCG.[INSERT NUMBER]  
+c.c. Accredited observers to the IWC
+
+<br>
+
+**Request for catch data and infractions reports for the `r lubridate::year(Sys.Date()) - 1` season**
+
+</center>
+
+<br>
+
+This Circular invites Contracting Governments to submit information on catches and reports of any infractions for the **`r lubridate::year(Sys.Date()) - 1`** season to the Secretariat by **`r format(Sys.Date()+30, "%d %B %Y")`**.
+
+<br>
+
+Article IX.4 of the International Convention for the Regulation of Whaling (1946) states that Contracting Governments shall transmit to the Commission full details of each infraction including a statement of measures taken and penalties imposed.
+
+<br>
+
+All data and information received will be compiled by the Secretariat and made available to the next meeting of the Commission’s Infractions Sub-committee.
+
+<br>
+
+The Infractions Sub-committee has adopted a form and checklist for reporting infractions, including reporting details of any infractions committed in previous years that remain unresolved. The form is available [here](https://archive.iwc.int/?r=22529) and the checklist is available [here](https://archive.iwc.int/?r=22528). 
+
+<br>
+
+While the use of the form is not compulsory, it is indicative of the required information. Contracting Governments must fulfil their reporting obligations under Article IX.4 of the Convention.
+
+<br>
+
+Should you have any questions, please contact the Statistics and Modelling Department of the Secretariat at [statistics@iwc.int](mailto:statistics@iwc.int).
+
+<br>
+
+<center>
+![](../inputs/image1.png)
+
+**NAME**  
+Lead for Statistics & Modelling  
+</center>
+
+```{r, results='asis', echo = F}
+cat("\n\n<style> body { font-family: 'Times New Roman'; } h1, h2, h3, h4 { text-align: center; } p { text-align: justify; } </style>\n")
+```
